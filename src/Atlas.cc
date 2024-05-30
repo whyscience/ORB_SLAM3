@@ -55,26 +55,34 @@ namespace ORB_SLAM3
         }
     }
 
+    /**
+ * @brief 创建新地图，如果当前活跃地图有效，先存储当前地图为不活跃地图，然后新建地图；否则，可以直接新建地图。
+ * 
+ */
     void Atlas::CreateNewMap()
     {
+        // 锁住地图集
         unique_lock<mutex> lock(mMutexAtlas);
         cout << "Creation of new map with id: " << Map::nNextId << endl;
+        // 如果当前活跃地图有效，先存储当前地图为不活跃地图后退出
         if (mpCurrentMap)
         {
+            // mnLastInitKFidMap为当前地图创建时第1个关键帧的id，它是在上一个地图最大关键帧id的基础上增加1
             if (!mspMaps.empty() && mnLastInitKFidMap < mpCurrentMap->GetMaxKFid())
-                mnLastInitKFidMap = mpCurrentMap->GetMaxKFid() + 1;//The init KF is the next of current maximum
+                mnLastInitKFidMap = mpCurrentMap->GetMaxKFid() + 1;// The init KF is the next of current maximum
 
+            // 将当前地图储存起来，其实就是把mIsInUse标记为false
             mpCurrentMap->SetStoredMap();
             cout << "Stored map with ID: " << mpCurrentMap->GetId() << endl;
 
-            //if(mHasViewer)
-            //    mpViewer->AddMapToCreateThumbnail(mpCurrentMap);
+            // if(mHasViewer)
+            //     mpViewer->AddMapToCreateThumbnail(mpCurrentMap);
         }
         cout << "Creation of new map with last KF id: " << mnLastInitKFidMap << endl;
 
-        mpCurrentMap = new Map(mnLastInitKFidMap);
-        mpCurrentMap->SetCurrentMap();
-        mspMaps.insert(mpCurrentMap);
+        mpCurrentMap = new Map(mnLastInitKFidMap);//新建地图
+        mpCurrentMap->SetCurrentMap();            //设置为活跃地图
+        mspMaps.insert(mpCurrentMap);             //插入地图集
     }
 
     void Atlas::ChangeMap(Map *pMap)
@@ -114,16 +122,23 @@ namespace ORB_SLAM3
         pMapMP->AddMapPoint(pMP);
     }
 
+    /**
+ * @brief 添加相机，跟保存地图相关
+ * @param pCam 相机
+ */
     GeometricCamera *Atlas::AddCamera(GeometricCamera *pCam)
     {
-        //Check if the camera already exists
+        // Check if the camera already exists
         bool bAlreadyInMap = false;
         int index_cam = -1;
+        // 遍历地图中现有的相机看看跟输入的相机一不一样，不一样的话则向mvpCameras添加
         for (size_t i = 0; i < mvpCameras.size(); ++i)
         {
             GeometricCamera *pCam_i = mvpCameras[i];
-            if (!pCam) std::cout << "Not pCam" << std::endl;
-            if (!pCam_i) std::cout << "Not pCam_i" << std::endl;
+            if (!pCam)
+                std::cout << "Not pCam" << std::endl;
+            if (!pCam_i)
+                std::cout << "Not pCam_i" << std::endl;
             if (pCam->GetType() != pCam_i->GetType())
                 continue;
 
@@ -287,6 +302,7 @@ namespace ORB_SLAM3
     void Atlas::SetInertialSensor()
     {
         unique_lock<mutex> lock(mMutexAtlas);
+        // 接着又调用Map类的SetInertialSensor成员函数,将其设置为imu属性,以后的跟踪和预积分将和这个标志有关
         mpCurrentMap->SetInertialSensor();
     }
 
@@ -302,14 +318,19 @@ namespace ORB_SLAM3
         return mpCurrentMap->isImuInitialized();
     }
 
+    /**
+ * @brief 预保存，意思是在保存成地图文件之前，要保存到对应变量里面
+ */
     void Atlas::PreSave()
     {
+        // 1. 更新mnLastInitKFidMap
         if (mpCurrentMap)
         {
             if (!mspMaps.empty() && mnLastInitKFidMap < mpCurrentMap->GetMaxKFid())
-                mnLastInitKFidMap = mpCurrentMap->GetMaxKFid() + 1;//The init KF is the next of current maximum
+                mnLastInitKFidMap = mpCurrentMap->GetMaxKFid() + 1;// The init KF is the next of current maximum
         }
 
+        // 比较map id
         struct compFunctor
         {
             inline bool operator()(Map *elem1, Map *elem2)
@@ -318,14 +339,18 @@ namespace ORB_SLAM3
             }
         };
         std::copy(mspMaps.begin(), mspMaps.end(), std::back_inserter(mvpBackupMaps));
+        // 2. 按照id从小到大排列
         sort(mvpBackupMaps.begin(), mvpBackupMaps.end(), compFunctor());
 
         std::set<GeometricCamera *> spCams(mvpCameras.begin(), mvpCameras.end());
+
+        // 3. 遍历所有地图，执行每个地图的预保存
         for (Map *pMi: mvpBackupMaps)
         {
             if (!pMi || pMi->IsBad())
                 continue;
 
+            // 如果地图为空，则跳过
             if (pMi->GetAllKeyFrames().size() == 0)
             {
                 // Empty map, erase before of save it.
@@ -334,11 +359,17 @@ namespace ORB_SLAM3
             }
             pMi->PreSave(spCams);
         }
+
+        // 4. 删除坏地图
         RemoveBadMaps();
     }
 
+    /**
+ * @brief 后加载，意思是读取地图文件后加载各个信息
+ */
     void Atlas::PostLoad()
     {
+        // 1. 读取当前所有相机
         map<unsigned int, GeometricCamera *> mpCams;
         for (GeometricCamera *pCam: mvpCameras)
         {
@@ -347,6 +378,7 @@ namespace ORB_SLAM3
 
         mspMaps.clear();
         unsigned long int numKF = 0, numMP = 0;
+        // 2. 加载各个地图
         for (Map *pMi: mvpBackupMaps)
         {
             mspMaps.insert(pMi);
@@ -372,6 +404,9 @@ namespace ORB_SLAM3
         mpORBVocabulary = pORBVoc;
     }
 
+    /**
+ * @brief 以下函数暂未用到
+ */
     ORBVocabulary *Atlas::GetORBVocabulary()
     {
         return mpORBVocabulary;
@@ -417,4 +452,4 @@ namespace ORB_SLAM3
         return mpIdKFs;
     }
 
-}//namespace ORB_SLAM3
+}// namespace ORB_SLAM3

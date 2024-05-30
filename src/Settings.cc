@@ -152,7 +152,7 @@ namespace ORB_SLAM3
     {
         sensor_ = sensor;
 
-        //Open settings file
+        // Open settings file
         cv::FileStorage fSettings(configFile, cv::FileStorage::READ);
         if (!fSettings.isOpened())
         {
@@ -166,18 +166,18 @@ namespace ORB_SLAM3
             cout << "Loading settings from " << configFile << endl;
         }
 
-        //Read first camera
+        // Read first camera
         readCamera1(fSettings);
         cout << "\t-Loaded camera 1" << endl;
 
-        //Read second camera if stereo (not rectified)
+        // Read second camera if stereo (not rectified)
         if (sensor_ == System::STEREO || sensor_ == System::IMU_STEREO)
         {
             readCamera2(fSettings);
             cout << "\t-Loaded camera 2" << endl;
         }
 
-        //Read image info
+        // Read image info
         readImageInfo(fSettings);
         cout << "\t-Loaded image info" << endl;
 
@@ -215,7 +215,7 @@ namespace ORB_SLAM3
     {
         bool found;
 
-        //Read camera model
+        // Read camera model
         string cameraModel = readParameter<string>(fSettings, "Camera.type", found);
 
         vector<float> vCalibration;
@@ -223,7 +223,7 @@ namespace ORB_SLAM3
         {
             cameraType_ = PinHole;
 
-            //Read intrinsic parameters
+            // Read intrinsic parameters
             float fx = readParameter<float>(fSettings, "Camera1.fx", found);
             float fy = readParameter<float>(fSettings, "Camera1.fy", found);
             float cx = readParameter<float>(fSettings, "Camera1.cx", found);
@@ -234,7 +234,7 @@ namespace ORB_SLAM3
             calibration1_ = new Pinhole(vCalibration);
             originalCalib1_ = new Pinhole(vCalibration);
 
-            //Check if it is a distorted PinHole
+            // Check if it is a distorted PinHole
             readParameter<float>(fSettings, "Camera1.k1", found, false);
             if (found)
             {
@@ -254,8 +254,13 @@ namespace ORB_SLAM3
                 vPinHoleDistorsion1_[3] = readParameter<float>(fSettings, "Camera1.p2", found);
             }
 
-            //Check if we need to correct distortion from the images
-            if ((sensor_ == System::MONOCULAR || sensor_ == System::IMU_MONOCULAR) && vPinHoleDistorsion1_.size() != 0)
+            // Check if we need to correct distortion from the images
+            if (
+                    (sensor_ == System::MONOCULAR ||
+                     sensor_ == System::IMU_MONOCULAR ||
+                     sensor_ == System::RGBD ||
+                     sensor_ == System::IMU_RGBD) &&
+                    vPinHoleDistorsion1_.size() != 0)
             {
                 bNeedToUndistort_ = true;
             }
@@ -264,7 +269,7 @@ namespace ORB_SLAM3
         {
             cameraType_ = Rectified;
 
-            //Read intrinsic parameters
+            // Read intrinsic parameters
             float fx = readParameter<float>(fSettings, "Camera1.fx", found);
             float fy = readParameter<float>(fSettings, "Camera1.fy", found);
             float cx = readParameter<float>(fSettings, "Camera1.cx", found);
@@ -275,13 +280,13 @@ namespace ORB_SLAM3
             calibration1_ = new Pinhole(vCalibration);
             originalCalib1_ = new Pinhole(vCalibration);
 
-            //Rectified images are assumed to be ideal PinHole images (no distortion)
+            // Rectified images are assumed to be ideal PinHole images (no distortion)
         }
         else if (cameraModel == "KannalaBrandt8")
         {
             cameraType_ = KannalaBrandt;
 
-            //Read intrinsic parameters
+            // Read intrinsic parameters
             float fx = readParameter<float>(fSettings, "Camera1.fx", found);
             float fy = readParameter<float>(fSettings, "Camera1.fy", found);
             float cx = readParameter<float>(fSettings, "Camera1.cx", found);
@@ -321,19 +326,18 @@ namespace ORB_SLAM3
         {
             bNeedToRectify_ = true;
 
-            //Read intrinsic parameters
+            // Read intrinsic parameters
             float fx = readParameter<float>(fSettings, "Camera2.fx", found);
             float fy = readParameter<float>(fSettings, "Camera2.fy", found);
             float cx = readParameter<float>(fSettings, "Camera2.cx", found);
             float cy = readParameter<float>(fSettings, "Camera2.cy", found);
-
 
             vCalibration = {fx, fy, cx, cy};
 
             calibration2_ = new Pinhole(vCalibration);
             originalCalib2_ = new Pinhole(vCalibration);
 
-            //Check if it is a distorted PinHole
+            // Check if it is a distorted PinHole
             readParameter<float>(fSettings, "Camera2.k1", found, false);
             if (found)
             {
@@ -355,7 +359,7 @@ namespace ORB_SLAM3
         }
         else if (cameraType_ == KannalaBrandt)
         {
-            //Read intrinsic parameters
+            // Read intrinsic parameters
             float fx = readParameter<float>(fSettings, "Camera2.fx", found);
             float fy = readParameter<float>(fSettings, "Camera2.fy", found);
             float cx = readParameter<float>(fSettings, "Camera2.cx", found);
@@ -365,7 +369,6 @@ namespace ORB_SLAM3
             float k1 = readParameter<float>(fSettings, "Camera1.k2", found);
             float k2 = readParameter<float>(fSettings, "Camera1.k3", found);
             float k3 = readParameter<float>(fSettings, "Camera1.k4", found);
-
 
             vCalibration = {fx, fy, cx, cy, k0, k1, k2, k3};
 
@@ -379,7 +382,7 @@ namespace ORB_SLAM3
             static_cast<KannalaBrandt8 *>(calibration2_)->mvLappingArea = vOverlapping;
         }
 
-        //Load stereo extrinsic calibration
+        // Load stereo extrinsic calibration
         if (cameraType_ == Rectified)
         {
             b_ = readParameter<float>(fSettings, "Stereo.b", found);
@@ -390,7 +393,7 @@ namespace ORB_SLAM3
             cv::Mat cvTlr = readParameter<cv::Mat>(fSettings, "Stereo.T_c1_c2", found);
             Tlr_ = Converter::toSophus(cvTlr);
 
-            //TODO: also search for Trl and invert if necessary
+            // TODO: also search for Trl and invert if necessary
 
             b_ = Tlr_.translation().norm();
             bf_ = b_ * calibration1_->getParameter(0);
@@ -402,7 +405,7 @@ namespace ORB_SLAM3
     void Settings::readImageInfo(cv::FileStorage &fSettings)
     {
         bool found;
-        //Read original and desired image dimensions
+        // Read original and desired image dimensions
         int originalRows = readParameter<int>(fSettings, "Camera.height", found);
         int originalCols = readParameter<int>(fSettings, "Camera.width", found);
         originalImSize_.width = originalCols;
@@ -417,11 +420,10 @@ namespace ORB_SLAM3
 
             if (!bNeedToRectify_)
             {
-                //Update calibration
+                // Update calibration
                 float scaleRowFactor = (float) newImSize_.height / (float) originalImSize_.height;
                 calibration1_->setParameter(calibration1_->getParameter(1) * scaleRowFactor, 1);
                 calibration1_->setParameter(calibration1_->getParameter(3) * scaleRowFactor, 3);
-
 
                 if ((sensor_ == System::STEREO || sensor_ == System::IMU_STEREO) && cameraType_ != Rectified)
                 {
@@ -439,7 +441,7 @@ namespace ORB_SLAM3
 
             if (!bNeedToRectify_)
             {
-                //Update calibration
+                // Update calibration
                 float scaleColFactor = (float) newImSize_.width / (float) originalImSize_.width;
                 calibration1_->setParameter(calibration1_->getParameter(0) * scaleColFactor, 0);
                 calibration1_->setParameter(calibration1_->getParameter(2) * scaleColFactor, 2);
@@ -546,7 +548,7 @@ namespace ORB_SLAM3
 
     void Settings::precomputeRectificationMaps()
     {
-        //Precompute rectification maps, new calibrations, ...
+        // Precompute rectification maps, new calibrations, ...
         cv::Mat K1 = static_cast<Pinhole *>(calibration1_)->toK();
         K1.convertTo(K1, CV_64F);
         cv::Mat K2 = static_cast<Pinhole *>(calibration2_)->toK();
@@ -571,16 +573,16 @@ namespace ORB_SLAM3
         cv::initUndistortRectifyMap(K2, camera2DistortionCoef(), R_r2_u2, P2.rowRange(0, 3).colRange(0, 3),
                                     newImSize_, CV_32F, M1r_, M2r_);
 
-        //Update calibration
+        // Update calibration
         calibration1_->setParameter(P1.at<double>(0, 0), 0);
         calibration1_->setParameter(P1.at<double>(1, 1), 1);
         calibration1_->setParameter(P1.at<double>(0, 2), 2);
         calibration1_->setParameter(P1.at<double>(1, 2), 3);
 
-        //Update bf
+        // Update bf
         bf_ = b_ * P1.at<double>(0, 0);
 
-        //Update relative pose between camera 1 and IMU if necessary
+        // Update relative pose between camera 1 and IMU if necessary
         if (sensor_ == System::IMU_STEREO)
         {
             Eigen::Matrix3f eigenR_r1_u1;
@@ -603,7 +605,8 @@ namespace ORB_SLAM3
         {
             output << "Kannala-Brandt";
         }
-        output << ")" << ": [";
+        output << ")"
+               << ": [";
         for (size_t i = 0; i < settings.originalCalib1_->size(); i++)
         {
             output << " " << settings.originalCalib1_->getParameter(i);
@@ -622,30 +625,34 @@ namespace ORB_SLAM3
 
         if (settings.sensor_ == System::STEREO || settings.sensor_ == System::IMU_STEREO)
         {
-            output << "\t-Camera 2 parameters (";
-            if (settings.cameraType_ == Settings::PinHole || settings.cameraType_ == Settings::Rectified)
+            if (settings.cameraType_ != Settings::Rectified)
             {
-                output << "Pinhole";
-            }
-            else
-            {
-                output << "Kannala-Brandt";
-            }
-            output << "" << ": [";
-            for (size_t i = 0; i < settings.originalCalib2_->size(); i++)
-            {
-                output << " " << settings.originalCalib2_->getParameter(i);
-            }
-            output << " ]" << endl;
-
-            if (!settings.vPinHoleDistorsion2_.empty())
-            {
-                output << "\t-Camera 1 distortion parameters: [ ";
-                for (float d: settings.vPinHoleDistorsion2_)
+                output << "\t-Camera 2 parameters (";
+                if (settings.cameraType_ == Settings::PinHole)
                 {
-                    output << " " << d;
+                    output << "Pinhole";
+                }
+                else
+                {
+                    output << "Kannala-Brandt";
+                }
+                output << ""
+                       << ": [";
+                for (size_t i = 0; i < settings.originalCalib2_->size(); i++)
+                {
+                    output << " " << settings.originalCalib2_->getParameter(i);
                 }
                 output << " ]" << endl;
+
+                if (!settings.vPinHoleDistorsion2_.empty())
+                {
+                    output << "\t-Camera 1 distortion parameters: [ ";
+                    for (float d: settings.vPinHoleDistorsion2_)
+                    {
+                        output << " " << d;
+                    }
+                    output << " ]" << endl;
+                }
             }
         }
 
@@ -684,7 +691,7 @@ namespace ORB_SLAM3
 
         output << "\t-Sequence FPS: " << settings.fps_ << endl;
 
-        //Stereo stuff
+        // Stereo stuff
         if (settings.sensor_ == System::STEREO || settings.sensor_ == System::IMU_STEREO)
         {
             output << "\t-Stereo baseline: " << settings.b_ << endl;
